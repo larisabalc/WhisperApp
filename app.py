@@ -1,7 +1,6 @@
 import os
 import streamlit as st
 from utils.whisper.whisper_service import transcribe, translate
-from utils.media_helpers import media_to_base64
 from utils.state_helpers import reset_session_state
 from components import (
     media_player, live_transcript, editable_transcript, translation_panel
@@ -12,9 +11,23 @@ UPLOAD_DIR = "assets/temp_uploads/"
 st.set_page_config(layout="wide")
 st.title("Whisper Transcription & Translation App")
 
-# -----------------------------
-# Top menu
-# -----------------------------
+# SIDEBAR STYLE SETTINGS
+
+st.sidebar.subheader("Style Settings")
+font_size = st.sidebar.slider("Font Size", 12, 36, 16)
+line_height = st.sidebar.slider("Line Height", 1.0, 3.0, 1.5, step=0.1)
+font_family = st.sidebar.selectbox(
+    "Font Family",
+    [
+        "Arial", "Helvetica", "Verdana", "Tahoma",
+        "Trebuchet MS", "Segoe UI", "Calibri", "Century Gothic",
+        "Times New Roman", "Georgia", "Garamond", "Cambria",
+        "Palatino Linotype", "Courier New", "Consolas", "Lucida Console"
+    ]
+)
+
+# MODE SELECTION
+
 mode = st.selectbox("Select mode:", ["Transcribe", "Translate"])
 
 if "mode_selected" not in st.session_state:
@@ -23,19 +36,16 @@ elif st.session_state["mode_selected"] != mode:
     reset_session_state(keys=["transcript", "translation", "media_path"])
     st.session_state["mode_selected"] = mode
 
-# -----------------------------
-# Conditional columns
-# -----------------------------
+# LAYOUT
+
 if mode == "Transcribe":
     col_media, col_live, col_edit = st.columns([3, 4, 5])
 else:
-    col_media, col_live, col_edit, col_translation = st.columns([3, 3, 3, 3])
+    col_media, col_live, col_edit = st.columns([3, 3, 6])
 
-# -----------------------------
-# Media upload & player
-# -----------------------------
+# MEDIA UPLOAD
+
 with col_media:
-    media_placeholder = st.empty() 
     uploaded_file = st.file_uploader(
         "Upload a video or audio file",
         type=["mp4", "mov", "mkv", "wav", "mp3", "m4a"],
@@ -44,7 +54,6 @@ with col_media:
 
     if uploaded_file is None:
         reset_session_state(["media_path", "transcript", "translation"])
-        media_placeholder.empty()
 
     if uploaded_file:
         os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -60,25 +69,46 @@ with col_media:
             with st.spinner(f"Running Whisper {mode.lower()}..."):
                 result = transcribe(st.session_state["media_path"])
                 st.session_state["transcript"] = result
-                if mode == "Translate" and result.get("language") != "en":
-                    st.session_state["translation"] = translate(st.session_state["media_path"])
+
+                if mode == "Translate":
+                    st.session_state["translation"] = translate(
+                        st.session_state["media_path"]
+                    )
+
             st.success(f"{mode} complete!")
 
-# -----------------------------
-# After processing
-# -----------------------------
+# AFTER PROCESSING
+
 if "transcript" in st.session_state:
-    result = st.session_state["transcript"]
 
-    # Live transcript
+    # LIVE PANEL 
     with col_live:
-        live_transcript.render(result)
+        live_transcript.render(
+            st.session_state["transcript"],
+            font_family=font_family,
+            font_size=font_size,
+            line_height=line_height
+        )
 
-    # Editable transcript
-    with col_edit:
-        editable_transcript.render(result)
+    # TRANSCRIBE MODEL
+    
+    if mode == "Transcribe":
+        with col_edit:
+            editable_transcript.render(
+                st.session_state["transcript"],
+                font_family=font_family,
+                font_size=font_size,
+                line_height=line_height
+            )
 
-    # Translation panel (Translate mode)
+
+    # TRANSLATE MODE 
+  
     if mode == "Translate" and "translation" in st.session_state:
-        with col_translation:
-            translation_panel.render(st.session_state["translation"])
+        with col_edit:
+            translation_panel.render(
+                st.session_state["translation"],
+                font_family=font_family,
+                font_size=font_size,
+                line_height=line_height
+            )
