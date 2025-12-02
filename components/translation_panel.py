@@ -1,98 +1,83 @@
 import streamlit as st
+from streamlit_ace import st_ace
 import io
-from reportlab.platypus import SimpleDocTemplate, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Preformatted
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import letter
 
 def render(translation: dict, font_family="DejaVu", font_size=16, line_height=1.5):
     """
-    Editable Translation Panel (clean layout, no white gaps):
-    - Search bar outside expander (fixes top white space)
-    - Scrollable preview
-    - Editable text area
-    - Case-insensitive search + highlight
-    - Export TXT + PDF (with auto-wrap, no text overflow)
+    Editable Translation Panel:
+    - ACE editor-like editable area
+    - Search bar outside editor
+    - Export TXT + PDF with chosen font, size, line height
     """
 
-    translated_text = translation.get("text", "").strip()
+    if "segments" in translation:
+        lines = []
+        for seg in translation["segments"]:
+            t = seg.get("translation") or seg.get("text", "")
+            t = t.strip()
+            if t:
+                lines.append(t)
+
+        # Join with newline
+        output_text = "\n".join(lines)
+
+    # If no segments, fallback to text key
+    else:
+        lines = []
+        for line in translation.get("text", "").split("\n"):
+            line = line.strip()
+            if line:
+                lines.append(line)
+
+    output_text = "\n".join(lines)
+    print(output_text)
 
     if "edited_translation" not in st.session_state:
-        st.session_state["edited_translation"] = translated_text
+        st.session_state["edited_translation"] = output_text
 
-    edited_text = st.session_state["edited_translation"]
+    # --- CSS for ACE editor look ---
+    st.markdown("""
+    <style>
+    [data-testid="stAce"], .ace_editor, .ace_scroller, .ace_content {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    .ace_editor {
+        overflow: visible !important;
+        position: relative !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    # SEARCH BAR 
+    # --- Editable ACE-style editor ---
 
-    search_query = st.text_input(
-        "Search in Translation:",
-        key="translation_search"
+    new_text = st_ace(
+        value=st.session_state["edited_translation"],
+        language="text",
+        theme="chrome",
+        height=400,
+        font_size=font_size,
+        wrap=True,
+        show_gutter=False,
+        show_print_margin=False,
+        key="editable_translation_ace"
     )
 
-    display_text = edited_text
-
-    if search_query:
-        low = edited_text.lower()
-        q = search_query.lower()
-
-        if q in low:
-            start = low.index(q)
-            end = start + len(search_query)
-
-            original = edited_text[start:end]
-
-            display_text = edited_text.replace(
-                original,
-                f"<span style='color:red; font-weight:bold'>{original}</span>"
-            )
-
-    # EXPANDER 
-
-    with st.expander("Editable Translation"):
-        # Scrollable Preview
-        st.markdown(
-            f"""
-            <div style="
-                height: 450px;
-                overflow-y: auto;
-                border: 1px solid rgba(255,255,255,0.15);
-                padding: 12px;
-                border-radius: 6px;
-                background: transparent;
-                width: 100%;
-                max-width: 100%;
-                font-size: {font_size}px;
-                line-height: {line_height};
-                font-family: {font_family};
-                color: inherit;
-            ">
-                {display_text.replace("\n", "<br>")}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # Editable Text Area
-        new_text = st.text_area(
-            "Edit Translation:",
-            value=edited_text,
-            height=250,
-            key="editable_translation_box"
-        )
-
+    if new_text is not None:
         st.session_state["edited_translation"] = new_text
 
-    # FIXED PDF EXPORT (no overflow, auto-line-wrap)
-
+    # --- PDF export function ---
     def make_pdf(text):
-
         buffer = io.BytesIO()
 
+        # Font map
         font_map = {
             "Arial": "C:/Windows/Fonts/arial.ttf",
-            "Helvetica": "C:/Windows/Fonts/arial.ttf",
             "Verdana": "C:/Windows/Fonts/verdana.ttf",
             "Tahoma": "C:/Windows/Fonts/tahoma.ttf",
             "Trebuchet MS": "C:/Windows/Fonts/trebuc.ttf",
@@ -110,9 +95,14 @@ def render(translation: dict, font_family="DejaVu", font_size=16, line_height=1.
             "DejaVu": "C:/Windows/Fonts/DejaVuSans.ttf"
         }
 
-        font_path = font_map.get(font_family, "C:/Windows/Fonts/DejaVuSans.ttf")
+        font_path = font_map.get(font_family, font_map["DejaVu"])
+        font_name = f"{font_family}_Custom"
 
-        pdfmetrics.registerFont(TTFont("CustomFont", font_path))
+        # Register font
+        try:
+            pdfmetrics.registerFont(TTFont(font_name, font_path))
+        except:
+            font_name = "Helvetica"
 
         doc = SimpleDocTemplate(
             buffer,
@@ -123,36 +113,31 @@ def render(translation: dict, font_family="DejaVu", font_size=16, line_height=1.
             rightMargin=50
         )
 
-        styles = getSampleStyleSheet()
-        style = styles["Normal"]
+        style = ParagraphStyle(
+            "TranslationStyle",
+            fontName=font_name,
+            fontSize=font_size,
+            leading=font_size * line_height
+        )
 
-        style.fontName = "CustomFont"
-        style.fontSize = font_size
-        style.leading = font_size * line_height
-        style.alignment = TA_LEFT
-
-        story = []
-        for line in text.split("\n"):
-            story.append(Paragraph(line, style))
-
+        story = [Preformatted(text, style)]
         doc.build(story)
         buffer.seek(0)
         return buffer
 
-    # EXPORT BUTTONS
-  
+    # --- Export buttons ---
     st.subheader("Export Edited Translation")
 
     st.download_button(
         "Download as TXT",
-        new_text,
+        st.session_state["edited_translation"],
         file_name="edited_translation.txt",
         mime="text/plain"
     )
 
     st.download_button(
         "Download as PDF",
-        make_pdf(new_text),
+        make_pdf(st.session_state["edited_translation"]),
         file_name="edited_translation.pdf",
         mime="application/pdf"
     )

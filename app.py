@@ -39,9 +39,9 @@ elif st.session_state["mode_selected"] != mode:
 # LAYOUT
 
 if mode == "Transcribe":
-    col_media, col_live, col_edit = st.columns([3, 4, 5])
+    col_media, col_live = st.columns([3, 4])
 else:
-    col_media, col_live, col_edit = st.columns([3, 3, 6])
+    col_media, col_live= st.columns([3, 3])
 
 # MEDIA UPLOAD
 
@@ -91,24 +91,20 @@ if "transcript" in st.session_state:
         )
 
     # TRANSCRIBE MODEL
-    
     if mode == "Transcribe":
-        with col_edit:
-            editable_transcript.render(
-                st.session_state["transcript"],
-                font_family=font_family,
-                font_size=font_size,
-                line_height=line_height
-            )
+        editable_transcript.render(
+            st.session_state["transcript"],
+            font_family=font_family,
+            font_size=font_size,
+            line_height=line_height
+        )
 
 
     # TRANSLATE MODE 
-  
     if mode == "Translate" and "translation" in st.session_state:
-        with col_edit:
-            translation_panel.render(
-                st.session_state["translation"],
-                font_family=font_family,
-                font_size=font_size,
-                line_height=line_height
-            )
+        translation_panel.render(
+            st.session_state["translation"],
+            font_family=font_family,
+            font_size=font_size,
+            line_height=line_height
+        )

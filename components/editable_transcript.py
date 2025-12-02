@@ -1,95 +1,65 @@
 import streamlit as st
+from streamlit_ace import st_ace
 import io
-from reportlab.platypus import SimpleDocTemplate, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Preformatted
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib.enums import TA_LEFT
-
+from reportlab.lib.pagesizes import letter
 
 def render(transcript: dict, font_family="DejaVu", font_size=16, line_height=1.5):
+    """
+    Editable Transcript panel using ACE editor.
+    Fixes Ctrl+F search bar visibility inside Streamlit column.
+    Allows export to TXT and PDF with selected font, size, and line height.
+    """
 
-    # Raw whisper segments
+    # --- Combine transcript segments into a single text ---
     segments = transcript["segments"]
     original_text = "\n".join(seg["text"].strip() for seg in segments)
 
-    # Keep edited text persistent
+    # --- Persistent edited text in session state ---
     if "edited_text" not in st.session_state:
         st.session_state["edited_text"] = original_text
 
-    edited_text = st.session_state["edited_text"]
+    st.subheader("Edit Transcript (CTRL + F to search)")
 
-    # SEARCH BAR 
+    # --- CSS fixes for ACE editor ---
+    st.markdown("""
+    <style>
+    [data-testid="stAce"], .ace_editor, .ace_scroller, .ace_content {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    .ace_editor {
+        overflow: visible !important;
+        position: relative !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    search_query = st.text_input(
-        "Search in Editable Transcript:",
-        key="edit_search"
+    # --- ACE Editor ---
+    new_text = st_ace(
+        value=st.session_state["edited_text"],
+        language="text",
+        theme="chrome",
+        height=400,
+        font_size=font_size,
+        wrap=True,
+        show_gutter=False,
+        show_print_margin=False,
+        key="editable_ace"
     )
-
-    display_text = edited_text
-
-    if search_query:
-        low = edited_text.lower()
-        q = search_query.lower()
-
-        if q in low:
-            start = low.index(q)
-            end = start + len(search_query)
-            original = edited_text[start:end]
-
-            display_text = edited_text.replace(
-                original,
-                f"<span style='color:red; font-weight:bold'>{original}</span>"
-            )
-
-    # EXPANDER 
-   
-    with st.expander("Editable Transcript", expanded=True):
-
-        # --- Scrollable processed text ---
-        st.markdown(
-            f"""
-            <div style="
-                height: 450px;
-                overflow-y: auto;
-                border: 1px solid rgba(255,255,255,0.15);
-                padding: 12px;
-                border-radius: 6px;
-                background: transparent;
-                width: 100%;
-                max-width: 100%;
-                font-size: {font_size}px;
-                line-height: {line_height};
-                font-family: {font_family};
-                color: inherit;
-            ">
-                {display_text.replace("\n", "<br>")}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # --- Editable text area ---
-        new_text = st.text_area(
-            "Edit transcript:",
-            value=edited_text,
-            height=250,
-            key="editable_text_box"
-        )
-
+    if new_text is not None:
         st.session_state["edited_text"] = new_text
 
-    # PDF EXPORT — overflow fix + auto-wrap
-
-    def make_pdf(text):
-
+    # --- PDF export function ---
+    def make_pdf(text, font_family=font_family, font_size=font_size, line_height=line_height):
         buffer = io.BytesIO()
 
-        # Map Streamlit-selected font to a Windows system font
+        # Map font family to system font paths
         font_map = {
             "Arial": "C:/Windows/Fonts/arial.ttf",
-            "Helvetica": "C:/Windows/Fonts/arial.ttf",
             "Verdana": "C:/Windows/Fonts/verdana.ttf",
             "Tahoma": "C:/Windows/Fonts/tahoma.ttf",
             "Trebuchet MS": "C:/Windows/Fonts/trebuc.ttf",
@@ -107,12 +77,17 @@ def render(transcript: dict, font_family="DejaVu", font_size=16, line_height=1.5
             "DejaVu": "C:/Windows/Fonts/DejaVuSans.ttf"
         }
 
-        chosen_font = font_map.get(font_family, "C:/Windows/Fonts/DejaVuSans.ttf")
+        font_path = font_map.get(font_family, font_map["DejaVu"])
+        font_name = f"{font_family}_Custom"
 
-        # Register chosen font
-        pdfmetrics.registerFont(TTFont("CustomFont", chosen_font))
+        # Register the font
+        try:
+            pdfmetrics.registerFont(TTFont(font_name, font_path))
+        except Exception as e:
+            print("Font registration failed:", e)
+            font_name = "Helvetica"  # fallback
 
-        # Create PDF document with proper margins
+        # Setup PDF document
         doc = SimpleDocTemplate(
             buffer,
             pagesize=letter,
@@ -122,37 +97,32 @@ def render(transcript: dict, font_family="DejaVu", font_size=16, line_height=1.5
             rightMargin=50
         )
 
-        styles = getSampleStyleSheet()
-        style = styles["Normal"]
-        style.fontName = "CustomFont"
-        style.fontSize = font_size
-        style.leading = font_size * line_height
-        style.alignment = TA_LEFT
+        # Preformatted style preserves line breaks and spacing
+        style = ParagraphStyle(
+            "TranscriptStyle",
+            fontName=font_name,
+            fontSize=font_size,
+            leading=font_size * line_height
+        )
 
-        story = []
-
-        # Convert every line to an auto-wrapped Paragraph
-        for line in text.split("\n"):
-            story.append(Paragraph(line, style))
-
+        story = [Preformatted(text, style)]
         doc.build(story)
         buffer.seek(0)
         return buffer
 
-    # EXPORT BUTTONS
- 
+    # --- Export buttons ---
     st.subheader("Export Edited Transcript")
 
     st.download_button(
-        "Download as TXT",
-        new_text,
+        "Download TXT",
+        st.session_state["edited_text"],
         file_name="edited_transcript.txt",
         mime="text/plain"
     )
 
     st.download_button(
-        "Download as PDF",
-        make_pdf(new_text),
+        "Download PDF",
+        make_pdf(st.session_state["edited_text"]),
         file_name="edited_transcript.pdf",
         mime="application/pdf"
     )
