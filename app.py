@@ -46,13 +46,38 @@ else:
 # MEDIA UPLOAD
 
 with col_media:
+
+    # Voice recording 
+    st.subheader("Record Audio")
+    audio_bytes = st.audio_input("Record your voice")
+
+    if audio_bytes:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        audio_path = os.path.join(UPLOAD_DIR, "recorded_audio.wav")
+
+
+        if hasattr(audio_bytes, "getbuffer"):   # UploadedFile object
+            raw_bytes = audio_bytes.getbuffer()
+        else:                                   
+            raw_bytes = audio_bytes
+
+        with open(audio_path, "wb") as f:
+            f.write(raw_bytes)
+
+        st.session_state["media_path"] = audio_path
+        st.success("Audio recording saved!")
+
+
+    st.divider()
+
+    # --- FILE UPLOAD ---
     uploaded_file = st.file_uploader(
         "Upload a video or audio file",
         type=["mp4", "mov", "mkv", "wav", "mp3", "m4a"],
         key="uploader"
     )
 
-    if uploaded_file is None:
+    if uploaded_file is None and audio_bytes is None:
         reset_session_state(["media_path", "transcript", "translation"])
 
     if uploaded_file:
@@ -62,6 +87,7 @@ with col_media:
             f.write(uploaded_file.getbuffer())
         st.session_state["media_path"] = media_path
 
+    # --- MEDIA PLAYER ---
     if "media_path" in st.session_state:
         media_player.render(st.session_state["media_path"])
 
